@@ -48,7 +48,27 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Redis connection failed (continuing without Redis): {redis_error}")
             logger.warning("OTP verification will use mock implementation")
 
-        logger.info(f"Application started successfully on {settings.HOST}:{settings.PORT}")
+        # Startup banner
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("🚀 " + "NEURULA HEALTH API - SERVER STARTED".center(76) + " 🚀")
+        logger.info("=" * 80)
+        logger.info(f"📋 App Name:      {settings.APP_NAME}")
+        logger.info(f"🏷️  Version:       {settings.APP_VERSION}")
+        logger.info(f"🌍 Environment:   {settings.ENVIRONMENT}")
+        logger.info(f"🐛 Debug Mode:    {settings.DEBUG}")
+        logger.info("─" * 80)
+        logger.info(f"🌐 Server URL:    http://{settings.HOST}:{settings.PORT}")
+        logger.info(f"📚 API Docs:      http://{settings.HOST}:{settings.PORT}/docs")
+        logger.info(f"📖 ReDoc:         http://{settings.HOST}:{settings.PORT}/redoc")
+        logger.info(f"💚 Health Check:  http://{settings.HOST}:{settings.PORT}/health")
+        logger.info("─" * 80)
+        logger.info(f"🔒 CORS Origins:  {', '.join(settings.cors_origins_list) if settings.cors_origins_list != ['*'] else 'All origins (*)'}")
+        logger.info(f"📊 Log Level:     {settings.LOG_LEVEL}")
+        logger.info("=" * 80)
+        logger.info("✅ Server is ready to accept connections!")
+        logger.info("=" * 80)
+        logger.info("")
 
     except Exception as e:
         logger.error(f"Startup error: {e}")

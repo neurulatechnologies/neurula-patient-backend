@@ -3,6 +3,7 @@ Middleware for authentication, CORS, logging, error handling
 """
 import time
 import logging
+import json
 from typing import Callable
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
@@ -14,22 +15,91 @@ logger = logging.getLogger(__name__)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware to log all requests and responses"""
+    """Enhanced middleware to log all requests and responses with detailed information"""
+
+    SENSITIVE_HEADERS = ['authorization', 'cookie', 'x-api-key', 'api-key']
+    MAX_BODY_LENGTH = 10000  # Maximum characters to log from request/response body
+
+    def mask_sensitive_headers(self, headers: dict) -> dict:
+        """Mask sensitive header values"""
+        masked = {}
+        for key, value in headers.items():
+            if key.lower() in self.SENSITIVE_HEADERS:
+                masked[key] = "***MASKED***"
+            else:
+                masked[key] = value
+        return masked
+
+    async def get_request_body(self, request: Request) -> str:
+        """Safely read and log request body"""
+        try:
+            body = await request.body()
+            if not body:
+                return "Empty body"
+
+            # Try to decode as JSON for pretty printing
+            try:
+                body_str = body.decode('utf-8')
+                if len(body_str) > self.MAX_BODY_LENGTH:
+                    return f"{body_str[:self.MAX_BODY_LENGTH]}... [truncated, total size: {len(body_str)} chars]"
+
+                # Try to parse as JSON for prettier output
+                try:
+                    json_body = json.loads(body_str)
+                    return json.dumps(json_body, indent=2)
+                except json.JSONDecodeError:
+                    return body_str
+            except UnicodeDecodeError:
+                return f"<Binary data, size: {len(body)} bytes>"
+        except Exception as e:
+            return f"<Error reading body: {str(e)}>"
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Start timer
         start_time = time.time()
 
-        # Log request
-        logger.info(
-            f"Request started: {request.method} {request.url.path}",
-            extra={
-                "method": request.method,
-                "path": request.url.path,
-                "query_params": str(request.query_params),
-                "client_host": request.client.host if request.client else None,
-            }
-        )
+        # Generate banner for visual separation
+        logger.info("=" * 80)
+        logger.info(f"🔵 REQUEST START: {request.method} {request.url.path}")
+        logger.info("=" * 80)
+
+        # Log request details
+        logger.info(f"📍 Path: {request.url.path}")
+        logger.info(f"🔧 Method: {request.method}")
+        logger.info(f"💻 Client: {request.client.host if request.client else 'Unknown'}")
+
+        # Log query parameters
+        if request.query_params:
+            logger.info(f"🔍 Query Params: {dict(request.query_params)}")
+
+        # Log headers (masked)
+        headers = self.mask_sensitive_headers(dict(request.headers))
+        logger.info(f"📋 Headers: {json.dumps(headers, indent=2)}")
+
+        # Log request body
+        if request.method in ["POST", "PUT", "PATCH"]:
+            # Store body for re-reading (FastAPI consumes it)
+            body_bytes = await request.body()
+
+            # Log the body
+            try:
+                body_str = body_bytes.decode('utf-8')
+                if len(body_str) > self.MAX_BODY_LENGTH:
+                    logger.info(f"📦 Request Body: {body_str[:self.MAX_BODY_LENGTH]}... [truncated, total: {len(body_str)} chars]")
+                else:
+                    try:
+                        json_body = json.loads(body_str)
+                        logger.info(f"📦 Request Body:\n{json.dumps(json_body, indent=2)}")
+                    except json.JSONDecodeError:
+                        logger.info(f"📦 Request Body: {body_str}")
+            except UnicodeDecodeError:
+                logger.info(f"📦 Request Body: <Binary data, size: {len(body_bytes)} bytes>")
+
+            # Reconstruct request with body for downstream processing
+            async def receive():
+                return {"type": "http.request", "body": body_bytes}
+
+            request._receive = receive
 
         # Process request
         try:
@@ -39,15 +109,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             duration = time.time() - start_time
 
             # Log response
-            logger.info(
-                f"Request completed: {request.method} {request.url.path} - Status: {response.status_code}",
-                extra={
-                    "method": request.method,
-                    "path": request.url.path,
-                    "status_code": response.status_code,
-                    "duration": f"{duration:.3f}s",
-                }
-            )
+            logger.info("─" * 80)
+            logger.info(f"✅ Status Code: {response.status_code}")
+            logger.info(f"⏱️  Duration: {duration:.3f}s")
+            logger.info("=" * 80)
+            logger.info(f"🟢 REQUEST END: {request.method} {request.url.path}")
+            logger.info("=" * 80)
+            logger.info("")  # Empty line for readability
 
             # Add custom headers
             response.headers["X-Process-Time"] = str(duration)
@@ -56,16 +124,12 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             duration = time.time() - start_time
-            logger.error(
-                f"Request failed: {request.method} {request.url.path} - Error: {str(e)}",
-                extra={
-                    "method": request.method,
-                    "path": request.url.path,
-                    "error": str(e),
-                    "duration": f"{duration:.3f}s",
-                },
-                exc_info=True
-            )
+            logger.error("─" * 80)
+            logger.error(f"❌ REQUEST FAILED: {request.method} {request.url.path}")
+            logger.error(f"💥 Error: {str(e)}")
+            logger.error(f"⏱️  Duration: {duration:.3f}s")
+            logger.error("=" * 80)
+            logger.error("", exc_info=True)
             raise
 
 
