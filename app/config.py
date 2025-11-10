@@ -93,7 +93,11 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         """Get CORS origins as list"""
         if isinstance(self.CORS_ORIGINS, str):
-            return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+            origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+            # Handle wildcard for development
+            if "*" in origins:
+                return ["*"]
+            return origins
         return self.CORS_ORIGINS
 
     @property

@@ -1,6 +1,7 @@
 """
 Authentication API endpoints
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +27,7 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.core.exceptions import NerulaException
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
@@ -41,25 +43,61 @@ async def register(
     - Sends OTP for verification
     - Returns user ID and confirmation
     """
+    logger.info("=" * 80)
+    logger.info("REGISTRATION REQUEST RECEIVED")
+    logger.info("=" * 80)
+    logger.info(f"📧 Email: {data.email}")
+    logger.info(f"📱 Phone: {data.phone}")
+    logger.info(f"👤 Full Name: {data.full_name}")
+    logger.info(f"🆔 Emirates ID: {data.emirates_id or 'Not provided'}")
+    logger.info(f"🌍 Nationality: {data.nationality or 'Not provided'}")
+    logger.info(f"📅 Date of Birth: {data.date_of_birth or 'Not provided'}")
+
     try:
+        logger.info("🔄 Step 1: Getting OTP service...")
         # Get OTP service
         redis_client = await get_otp_redis()
         otp_service = OTPService(redis_client)
+        logger.info("✅ OTP service initialized successfully")
 
+        logger.info("🔄 Step 2: Creating auth service...")
         # Register user
         auth_service = AuthService(db, otp_service)
-        user, patient, otp = await auth_service.register_user(data)
+        logger.info("✅ Auth service initialized successfully")
 
-        return RegisterResponse(
+        logger.info("🔄 Step 3: Registering user in database...")
+        user, patient, otp = await auth_service.register_user(data)
+        logger.info(f"✅ User registered successfully!")
+        logger.info(f"   - User ID: {user.id}")
+        logger.info(f"   - Patient ID: {patient.id}")
+        logger.info(f"   - OTP Generated: {otp}")
+
+        logger.info("🔄 Step 4: Preparing response...")
+        response = RegisterResponse(
             message="Registration successful. Please verify your email with the OTP sent.",
             user_id=str(user.id),
             email=user.email,
             otp_sent=True
         )
 
+        logger.info("✅ REGISTRATION COMPLETED SUCCESSFULLY!")
+        logger.info(f"🎉 User {user.email} can now verify with OTP: {otp}")
+        logger.info("=" * 80)
+
+        return response
+
     except NerulaException as e:
+        logger.error("❌ REGISTRATION FAILED - NerulaException")
+        logger.error(f"   Error Code: {e.status_code}")
+        logger.error(f"   Error Message: {e.message}")
+        logger.error("=" * 80)
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
+        logger.error("❌ REGISTRATION FAILED - Unexpected Error")
+        logger.error(f"   Error Type: {type(e).__name__}")
+        logger.error(f"   Error Message: {str(e)}")
+        logger.exception("Full traceback:")
+        logger.error("=" * 80)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Registration failed: {str(e)}"
